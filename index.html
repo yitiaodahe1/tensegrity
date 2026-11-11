@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>张拉整体 · 交互式 3D 结构模型</title>
+<style>
+  :root{
+    --bg:#f4f7fb; --panel:rgba(255,255,255,.9); --line:#dde4ee;
+    --ink:#1b2536; --muted:#68768d; --accent:#2f6df6; --warm:#e0522f;
+    --cool:#2f5fc0; --shadow:0 12px 40px rgba(31,52,86,.11);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
+    font-family:"Inter","PingFang SC","Microsoft YaHei","Segoe UI",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  #stage{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+  #stage.grabbing{cursor:grabbing}
+  #stage.overnode{cursor:crosshair}
+
+  .brand{position:absolute;top:22px;left:26px;pointer-events:none;user-select:none}
+  .brand h1{margin:0;font-size:24px;font-weight:700;letter-spacing:.06em;line-height:1.2}
+  .brand .en{margin-top:4px;font-size:10px;letter-spacing:.34em;color:var(--muted);font-weight:600}
+  .brand .sub{margin-top:9px;font-size:12px;color:var(--muted);max-width:340px;line-height:1.6}
+
+  .panel{position:absolute;top:22px;right:22px;width:302px;max-height:calc(100vh - 44px);
+    overflow-y:auto;overscroll-behavior:contain;background:var(--panel);backdrop-filter:blur(14px);
+    border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:16px 16px 14px}
+  .panel::-webkit-scrollbar{width:6px}
+  .panel::-webkit-scrollbar-thumb{background:#cdd7e5;border-radius:6px}
+  .phead{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .phead strong{font-size:13px;letter-spacing:.08em}
+  .phead button{border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:8px;
+    font-size:11px;padding:4px 9px;cursor:pointer}
+  .phead button:hover{color:var(--accent);border-color:#b9cdfa}
+  .panel.folded .pbody{display:none}
+  .sec{margin-bottom:15px;padding-bottom:14px;border-bottom:1px solid #edf1f7}
+  .sec:last-child{border-bottom:0;margin-bottom:0;padding-bottom:0}
+  .sec > label{display:block;font-size:10px;letter-spacing:.16em;color:var(--muted);
+    font-weight:700;margin-bottom:9px}
+  .tabs{display:flex;gap:5px}
+  .tabs button{flex:1;border:1px solid var(--line);background:#fff;color:var(--muted);
+    border-radius:9px;padding:8px 2px;font-size:11px;cursor:pointer;transition:.15s}
+  .tabs button:hover{border-color:#b9cdfa;color:var(--accent)}
+  .tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff;
+    box-shadow:0 4px 12px rgba(47,109,246,.25)}
+  .row{display:flex;align-items:center;justify-content:space-between;margin:9px 0 2px;font-size:11.5px}
+  .row span:first-child{color:#3d4a5f}
+  .row b{font-variant-numeric:tabular-nums;font-weight:600;color:var(--accent);font-size:11px}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:16px;background:transparent;
+    margin:0;cursor:pointer;display:block}
+  input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:4px;background:#e3e9f2}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;margin-top:-4.5px;
+    border-radius:50%;background:#fff;border:2.5px solid var(--accent);box-shadow:0 1px 4px rgba(0,0,0,.18)}
+  input[type=range]:disabled{opacity:.35;cursor:not-allowed}
+  .checks{display:grid;grid-template-columns:1fr 1fr;gap:7px 6px}
+  .chk{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#3d4a5f;cursor:pointer}
+  .chk input{accent-color:var(--accent);width:13px;height:13px;margin:0}
+  .btns{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .btns button{border:1px solid var(--line);background:#fff;color:#33415a;border-radius:9px;
+    padding:8px 4px;font-size:11.5px;cursor:pointer;transition:.15s}
+  .btns button:hover{border-color:#b9cdfa;color:var(--accent);background:#f7faff}
+  .btns button.primary{background:#f0f5ff;border-color:#cfdefd;color:var(--accent)}
+  .legend{display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--muted)}
+  .legend div{display:flex;align-items:center;gap:8px}
+  .swatch{width:22px;height:5px;border-radius:3px;flex:none}
+  .note{margin-top:10px;font-size:10.5px;line-height:1.65;color:#8a97ab;
+    background:#f6f9fd;border:1px solid #eaf0f8;border-radius:9px;padding:8px 9px}
+
+  .hud{position:absolute;left:26px;bottom:22px;pointer-events:none;user-select:none}
+  .hud .stat{display:flex;gap:16px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .hud .stat b{color:#2b3a52;font-weight:600}
+  .hud .tip{margin-top:8px;font-size:11px;color:#8996aa;letter-spacing:.02em}
+  .readout{position:absolute;left:26px;bottom:78px;min-width:210px;pointer-events:none;
+    background:rgba(255,255,255,.78);border:1px solid var(--line);border-radius:11px;
+    padding:9px 12px;font-size:11px;color:#3d4a5f;line-height:1.7;
+    box-shadow:0 6px 20px rgba(31,52,86,.07);backdrop-filter:blur(8px)}
+  .readout b{color:var(--accent)}
+  @media (max-width:780px){
+    .panel{width:250px;right:12px;top:12px;max-height:calc(100vh - 24px);padding:12px}
+    .brand{top:14px;left:14px}.brand h1{font-size:19px}.brand .sub{display:none}
+    .hud{left:14px;bottom:14px}.readout{left:14px;bottom:64px}
+  }
+  @media (max-width:600px){
+    .brand{top:12px;left:14px}
+    .brand h1{font-size:20px}.brand .en{font-size:9px}
+    .brand .sub{display:block;font-size:10.5px;line-height:1.5;max-width:270px;margin-top:6px}
+    .panel{top:auto;bottom:10px;left:10px;right:10px;width:auto;
+      max-height:54vh;padding:12px;border-radius:14px}
+    .panel.folded{max-height:none;padding:10px 13px}
+    .panel.folded .phead{margin-bottom:0}
+    .phead button{font-size:12px;padding:6px 14px}
+    .hud{display:none}
+    .readout{left:14px;top:100px;bottom:auto;min-width:0;max-width:236px;
+      font-size:10px;padding:7px 10px;line-height:1.55}
+    .tabs button{font-size:10px;padding:8px 2px}
+    .row{margin:8px 0 2px}
+  }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<div class="brand">
+  <h1>张拉整体</h1>
+  <div class="en">TENSEGRITY / INTERACTIVE 3D</div>
+  <div class="sub" id="brandSub">连续的拉索网络中，悬浮着彼此永不接触的压杆。<br>拉动任意节点，观察张力如何在结构中传递。</div>
+</div>
+
+<div class="panel" id="panel">
+  <div class="phead"><strong>控制台</strong><button id="fold">收起</button></div>
+  <div class="pbody">
+
+    <div class="sec">
+      <label>结构类型</label>
+      <div class="tabs" id="modelTabs">
+        <button data-model="prism3">三棱柱 3 杆</button>
+        <button data-model="prism4">四棱柱 4 杆</button>
+        <button data-model="icosa" class="on">二十面体 6 杆</button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <label>物理参数</label>
+      <div class="row"><span>索预张力</span><b id="v-prestrain">4.5%</b></div>
+      <input type="range" data-k="prestrain" min="0" max="0.12" step="0.005" value="0.045">
+      <div class="row"><span>结构回弹</span><b id="v-anchor">0.60</b></div>
+      <input type="range" data-k="anchor" min="0" max="1.6" step="0.05" value="0.6">
+      <div class="row"><span>阻尼</span><b id="v-damping">0.35</b></div>
+      <input type="range" data-k="damping" min="0.02" max="1.2" step="0.01" value="0.35">
+      <div class="row"><span>重力</span><b id="v-gravity">0.00</b></div>
+      <input type="range" data-k="gravity" min="0" max="3" step="0.05" value="0">
+      <div class="row"><span>扭转角（棱柱）</span><b id="v-twist">150°</b></div>
+      <input type="range" data-k="twist" min="30" max="180" step="1" value="150" id="twistRange">
+    </div>
+
+    <div class="sec">
+      <label>视角与外观</label>
+      <div class="row"><span>自动旋转</span><b id="v-auto">0.12</b></div>
+      <input type="range" data-k="auto" min="-0.6" max="0.6" step="0.02" value="0.12">
+      <div class="row"><span>压杆半径</span><b id="v-rodR">0.075</b></div>
+      <input type="range" data-k="rodR" min="0.025" max="0.15" step="0.005" value="0.075">
+      <div class="row"><span>拉索半径</span><b id="v-cableR">0.009</b></div>
+      <input type="range" data-k="cableR" min="0.003" max="0.03" step="0.001" value="0.009">
+      <div style="margin-top:11px" class="tabs" id="viewTabs">
+        <button data-view="all" class="on">全部</button>
+        <button data-view="struts">仅压杆</button>
+        <button data-view="cables">仅拉索</button>
+      </div>
+      <div class="checks" style="margin-top:11px">
+        <label class="chk"><input type="checkbox" data-c="showNodes" checked>显示节点</label>
+        <label class="chk"><input type="checkbox" data-c="showFloor" checked>地面网格</label>
+        <label class="chk"><input type="checkbox" data-c="forceColor" checked>受力着色</label>
+        <label class="chk"><input type="checkbox" data-c="exploded">拆解视图</label>
+      </div>
+    </div>
+
+    <div class="sec">
+      <label>操作</label>
+      <div class="btns">
+        <button id="btnReset" class="primary">重置结构</button>
+        <button id="btnPause">暂停 / 继续</button>
+        <button id="btnKick">随机扰动</button>
+        <button id="btnView">复位视角</button>
+        <button id="btnObj">导出 OBJ 模型</button>
+        <button id="btnPng">保存 PNG 截图</button>
+      </div>
+      <div class="legend" style="margin-top:13px">
+        <div><span class="swatch" style="background:linear-gradient(90deg,#1f3f86,#5b8ae8,#1f3f86)"></span>压杆 · 只承受压缩</div>
+        <div><span class="swatch" style="background:linear-gradient(90deg,#a6b3c6,#e0522f)"></span>拉索 · 只承受拉伸（越红张力越大）</div>
+      </div>
+      <div class="note">本地离线运行，无外部依赖。物理为简化的质点—约束求解（PBD），用于交互演示与形态观察，非工程有限元计算。</div>
+    </div>
+
+  </div>
+</div>
+
+<div class="readout" id="readout"></div>
+<div class="hud">
+  <div class="stat" id="stat"></div>
+  <div class="tip" id="hudTip">左键拖拽旋转 · 滚轮缩放 · 拖动节点施力（Shift 推拉深度）· 右键平移 · 双击复位</div>
+</div>
+
+<script>
+/* ==========================================================================
+   核心层：几何 + 物理 + OBJ 导出。此层不依赖 DOM，可被 Node 单独加载测试。
+   ========================================================================== */
+const PHI = (1 + Math.sqrt(5)) / 2;
+const TAU = Math.PI * 2;
+
+function vsub(a,b){ return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]; }
+function vadd(a,b){ return [a[0]+b[0], a[1]+b[1], a[2]+b[2]]; }
+function vmul(a,s){ return [a[0]*s, a[1]*s, a[2]*s]; }
+function vlen(a){ return Math.hypot(a[0],a[1],a[2]); }
+function vnorm(a){ const l=vlen(a)||1; return [a[0]/l,a[1]/l,a[2]/l]; }
+function vcross(a,b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+function vdot(a,b){ return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
+function dist(a,b){ return vlen(vsub(a,b)); }
+function clamp(x,a,b){ return x<a?a:(x>b?b:x); }
+
+/* 二十面体 6 杆张拉整体：3 组互相垂直的黄金矩形，每个矩形两条短边为压杆，
+   其余 24 条棱为拉索。12 节点 / 6 杆 / 24 索。 */
+function buildIcosahedron(){
+  const raw = [
+    [0, 1, PHI], [0,-1, PHI], [0, 1,-PHI], [0,-1,-PHI],
+    [1, PHI, 0],[-1, PHI, 0], [1,-PHI, 0],[-1,-PHI, 0],
+    [PHI, 0, 1],[PHI, 0,-1],[-PHI, 0, 1],[-PHI, 0,-1]
+  ];
+  const s = 1.62 / Math.hypot(1, PHI);
+  const nodes = raw.map(p => p.map(c => c*s));
+  const struts = [[0,1],[2,3],[4,5],[6,7],[8,9],[10,11]];
+  const cables = [];
+  for(let i=0;i<12;i++) for(let j=i+1;j<12;j++){
+    if(Math.abs(dist(nodes[i],nodes[j]) - 2*s) < 1e-6 &&
+       !struts.some(e => e[0]===i && e[1]===j)) cables.push([i,j]);
+  }
+  return {nodes, struts, cables, name:'二十面体 · 6 杆'};
+}
+
+/* n 杆张拉整体棱柱：n 根斜压杆 + n 根竖索 + 上下各 n 根环索。
+   平衡扭转角为 90° + 180°/n（3 杆 = 150°，4 杆 = 135°）。 */
+function buildPrism(n, twistDeg){
+  const r = 1.0, h = 1.7, t = twistDeg*Math.PI/180;
+  const nodes = [];
+  for(let i=0;i<n;i++){ const a=TAU*i/n; nodes.push([r*Math.cos(a), -h/2, r*Math.sin(a)]); }
+  for(let i=0;i<n;i++){ const a=TAU*i/n + t; nodes.push([r*Math.cos(a), h/2, r*Math.sin(a)]); }
+  const struts = [], cables = [];
+  for(let i=0;i<n;i++){
+    struts.push([i, n+(i+1)%n]);
+    cables.push([i, n+i]);
+    cables.push([i, (i+1)%n]);
+    cables.push([n+i, n+(i+1)%n]);
+  }
+  return {nodes, struts, cables, name:(n===3?'三棱柱 · 3 杆':'四棱柱 · 4 杆')};
+}
+
+function buildModel(kind, twistDeg){
+  const g = kind === 'icosa' ? buildIcosahedron() : buildPrism(kind === 'prism3' ? 3 : 4, twistDeg);
+  const nodes = g.nodes.map(p => ({
+    p:p.slice(), home:p.slice(), prev:p.slice(), v:[0,0,0], pinned:false, force:0
+  }));
+  const mk = pairs => pairs.map(e => ({
+    a:e[0], b:e[1], L:dist(g.nodes[e[0]],g.nodes[e[1]]), force:0
+  }));
+  return {kind, name:g.name, nodes, struts:mk(g.struts), cables:mk(g.cables), time:0};
+}
+
+function solvePair(m, list, prestrain, onlyPull){
+  for(const c of list){
+    const A=m.nodes[c.a], B=m.nodes[c.b];
+    const dx=B.p[0]-A.p[0], dy=B.p[1]-A.p[1], dz=B.p[2]-A.p[2];
+    const d=Math.hypot(dx,dy,dz);
+    if(d<1e-9) continue;
+    const L = onlyPull ? c.L*(1-prestrain) : c.L;
+    const err = d-L;
+    if(onlyPull && err<=0) continue;
+    const wA=A.pinned?0:1, wB=B.pinned?0:1, ws=wA+wB;
+    if(!ws) continue;
+    const f=err/d/ws;
+    if(wA){ A.p[0]+=dx*f; A.p[1]+=dy*f; A.p[2]+=dz*f; }
+    if(wB){ B.p[0]-=dx*f; B.p[1]-=dy*f; B.p[2]-=dz*f; }
+    c.force+=Math.abs(err);
+    A.force+=Math.abs(err); B.force+=Math.abs(err);
+  }
+}
+
+/* Position Based Dynamics：杆为双向刚性约束，索为单向拉伸约束 */
+function stepModel(m, o){
+  const SUB=2, ITER=10, h=(1/60)/SUB;
+  for(const n of m.nodes) n.force=0;
+  for(const c of m.struts) c.force=0;
+  for(const c of m.cables) c.force=0;
+  const damp=Math.exp(-(o.damping||0)*h*10);
+  const anchor=o.anchor||0, gravity=o.gravity||0, prestrain=o.prestrain||0;
+  for(let s=0;s<SUB;s++){
+    for(const n of m.nodes){
+      if(n.pinned){ n.prev=n.p.slice(); n.v=[0,0,0]; continue; }
+      n.prev=n.p.slice();
+      for(let k=0;k<3;k++){
+        n.v[k]+=(n.home[k]-n.p[k])*anchor*h;
+        if(k===1) n.v[k]-=gravity*h;
+        n.v[k]*=damp;
+        n.p[k]+=n.v[k]*h;
+      }
+      if(o.floor!==undefined && n.p[1]<o.floor) n.p[1]=o.floor;
+    }
+    for(let it=0;it<ITER;it++){
+      solvePair(m,m.struts,prestrain,false);
+      solvePair(m,m.cables,prestrain,true);
+    }
+    for(const n of m.nodes){
+      if(n.pinned) continue;
+      for(let k=0;k<3;k++) n.v[k]=(n.p[k]-n.prev[k])/h;
+    }
+  }
+  const norm=1/(SUB*ITER);
+  for(const c of m.struts) c.force*=norm;
+  for(const c of m.cables) c.force*=norm;
+  for(const n of m.nodes) n.force*=norm;
+  m.time+=1/60;
+}
+
+function kickModel(m, amp){
+  for(const n of m.nodes){
+    if(n.pinned) continue;
+    n.v[0]+=(Math.random()-.5)*amp;
+    n.v[1]+=(Math.random()-.5)*amp;
+    n.v[2]+=(Math.random()-.5)*amp;
+  }
+}
+
+/* ---------- OBJ 网格导出：压杆 / 拉索为圆柱，节点为低模球 ---------- */
+function cylinderGeom(a,b,r,seg){
+  const ax=vnorm(vsub(b,a));
+  const ref=Math.abs(ax[1])<0.9 ? [0,1,0] : [1,0,0];
+  const u=vnorm(vcross(ax,ref)), v=vnorm(vcross(ax,u));
+  const verts=[], faces=[];
+  for(let i=0;i<seg;i++){
+    const th=TAU*i/seg, c=Math.cos(th)*r, s=Math.sin(th)*r;
+    const d=vadd(vmul(u,c),vmul(v,s));
+    verts.push(vadd(a,d));
+  }
+  for(let i=0;i<seg;i++){
+    const th=TAU*i/seg, c=Math.cos(th)*r, s=Math.sin(th)*r;
+    const d=vadd(vmul(u,c),vmul(v,s));
+    verts.push(vadd(b,d));
+  }
+  for(let i=0;i<seg;i++){
+    const j=(i+1)%seg;
+    faces.push([i,j,seg+j],[i,seg+j,seg+i]);
+  }
+  for(let i=1;i<seg-1;i++){ faces.push([0,i+1,i],[seg,seg+i,seg+i+1]); }
+  return {v:verts,f:faces};
+}
+
+function sphereGeom(c,r,seg,rings){
+  const verts=[], faces=[];
+  for(let j=0;j<=rings;j++){
+    const th=Math.PI*j/rings;
+    for(let i=0;i<seg;i++){
+      const ph=TAU*i/seg;
+      verts.push([c[0]+r*Math.sin(th)*Math.cos(ph),
+                  c[1]+r*Math.cos(th),
+                  c[2]+r*Math.sin(th)*Math.sin(ph)]);
+    }
+  }
+  for(let j=0;j<rings;j++) for(let i=0;i<seg;i++){
+    const i2=(i+1)%seg, a=j*seg+i, b=j*seg+i2, cc=(j+1)*seg+i, d=(j+1)*seg+i2;
+    faces.push([a,cc,d],[a,d,b]);
+  }
+  return {v:verts,f:faces};
+}
+
+function buildOBJ(m, opt){
+  const o=opt||{}, rodR=o.rodR||0.075, cableR=o.cableR||0.012, nodeR=o.nodeR||0.055;
+  const f3=x=>Number(x).toFixed(5);
+  let out='# Tensegrity - '+m.name+'\n# struts: compression | cables: tension | nodes: joints\n';
+  let count=0;
+  function emit(group, geoms){
+    out+='\ng '+group+'\n';
+    for(const g of geoms){
+      const base=count+1;
+      for(const p of g.v){ out+='v '+f3(p[0])+' '+f3(p[1])+' '+f3(p[2])+'\n'; }
+      count+=g.v.length;
+      for(const f of g.f){ out+='f '+f.map(i=>base+i).join(' ')+'\n'; }
+    }
+  }
+  const rods=m.struts.map(c=>cylinderGeom(m.nodes[c.a].p,m.nodes[c.b].p,rodR,o.seg||10));
+  const wires=m.cables.map(c=>cylinderGeom(m.nodes[c.a].p,m.nodes[c.b].p,cableR,6));
+  const joints=m.nodes.map(n=>sphereGeom(n.p,nodeR,8,5));
+  emit('struts',rods); emit('cables',wires); emit('nodes',joints);
+  return out;
+}
+
+/* __CORE_END__ */
+
+/* ==========================================================================
+   渲染层 + 交互层
+   ========================================================================== */
+const canvas=document.getElementById('stage');
+const ctx=canvas.getContext('2d');
+let W=0,H=0,DPR=1;
+function resize(){
+  DPR=Math.min(2,window.devicePixelRatio||1);
+  W=canvas.clientWidth; H=canvas.clientHeight;
+  canvas.width=Math.round(W*DPR); canvas.height=Math.round(H*DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener('resize',resize);
+resize();
+
+const state={
+  kind:'icosa', twist:150, paused:false, view:'all',
+  showNodes:true, showFloor:true, forceColor:true, exploded:false,
+  prestrain:0.045, anchor:0.6, damping:0.35, gravity:0,
+  auto:0.12, rodR:0.075, cableR:0.009,
+  yaw:0.62, pitch:0.30, camDist:5.5, panX:0, panY:0,
+  hover:null, selected:null, drag:null
+};
+let model=buildModel(state.kind,state.twist);
+let screenCache={nodes:[],segs:[]};
+let lastCam=null, fps=60, lastT=performance.now(), lastReadout=0;
+
+function camera(){
+  const cp=Math.cos(state.pitch), sp=Math.sin(state.pitch);
+  const target=[state.panX,state.panY,0];
+  const pos=[target[0]+state.camDist*cp*Math.sin(state.yaw),
+             target[1]+state.camDist*sp,
+             target[2]+state.camDist*cp*Math.cos(state.yaw)];
+  const fwd=vnorm(vsub(target,pos));
+  const right=vnorm(vcross(fwd,[0,1,0]));
+  const up=vcross(right,fwd);
+  const focal=(H/2)/Math.tan(42*Math.PI/360);
+  return {pos,fwd,right,up,focal};
+}
+function project(p,cam){
+  const rel=vsub(p,cam.pos), z=vdot(rel,cam.fwd);
+  if(z<0.08) return null;
+  const s=cam.focal/z;
+  const ox=W>900?105:0;
+  return {x:W/2-ox+vdot(rel,cam.right)*s, y:H/2-vdot(rel,cam.up)*s, z, s};
+}
+
+function hex2rgb(h){
+  const s=h.replace('#','');
+  return [parseInt(s.slice(0,2),16),parseInt(s.slice(2,4),16),parseInt(s.slice(4,6),16)];
+}
+function toRGB(c){
+  if(Array.isArray(c)) return c;
+  if(c.charAt(0)==='#') return hex2rgb(c);
+  const m=c.match(/\d+/g);
+  return m?[+m[0],+m[1],+m[2]]:[0,0,0];
+}
+function shade(c,t){
+  const [r,g,b]=toRGB(c), f=t>0?255:0, k=Math.abs(t);
+  return [r+(f-r)*k,g+(f-g)*k,b+(f-b)*k];
+}
+function mixColor(a,b,t){
+  const A=hex2rgb(a),B=hex2rgb(b);
+  return [A[0]+(B[0]-A[0])*t,A[1]+(B[1]-A[1])*t,A[2]+(B[2]-A[2])*t];
+}
+function rgba(c,a){ return 'rgba('+(c[0]|0)+','+(c[1]|0)+','+(c[2]|0)+','+a+')'; }
+function rgb(c){ return 'rgb('+(c[0]|0)+','+(c[1]|0)+','+(c[2]|0)+')'; }
+
+function drawFloor(cam){
+  const fy=-1.92;
+  ctx.lineWidth=1;
+  for(let i=-6;i<=6;i++){
+    const t=i*0.5;
+    const pairs=[[[t,fy,-3],[t,fy,3]],[[-3,fy,t],[3,fy,t]]];
+    for(const [a,b] of pairs){
+      const A=project(a,cam),B=project(b,cam);
+      if(!A||!B) continue;
+      ctx.strokeStyle=i===0?'rgba(90,115,155,.20)':'rgba(90,115,155,.095)';
+      ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y); ctx.stroke();
+    }
+  }
+  const c=project([0,fy,0],cam);
+  if(c){
+    const r=1.65*c.s;
+    ctx.save(); ctx.translate(c.x,c.y); ctx.scale(1,.34);
+    const g=ctx.createRadialGradient(0,0,0,0,0,r);
+    g.addColorStop(0,'rgba(38,58,92,.22)'); g.addColorStop(.55,'rgba(38,58,92,.09)');
+    g.addColorStop(1,'rgba(38,58,92,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,r,0,TAU); ctx.fill(); ctx.restore();
+  }
+}
+
+function drawRod(p1,p2,rWorld,base,hl){
+  const dx=p2.x-p1.x, dy=p2.y-p1.y, L=Math.hypot(dx,dy);
+  if(L<0.01) return;
+  const nx=-dy/L, ny=dx/L;
+  const r1=Math.max(1.4,rWorld*p1.s), r2=Math.max(1.4,rWorld*p2.s);
+  if(hl){ ctx.shadowColor='rgba(47,109,246,.55)'; ctx.shadowBlur=14; }
+  const g=ctx.createLinearGradient(p1.x+nx*r1,p1.y+ny*r1,p1.x-nx*r1,p1.y-ny*r1);
+  g.addColorStop(0,   rgb(shade(base,-.48)));
+  g.addColorStop(.22, rgb(shade(base,.04)));
+  g.addColorStop(.42, rgb(shade(base,.52)));
+  g.addColorStop(.60, rgb(shade(base,.10)));
+  g.addColorStop(1,   rgb(shade(base,-.52)));
+  ctx.fillStyle=g;
+  ctx.beginPath();
+  ctx.moveTo(p1.x+nx*r1,p1.y+ny*r1);
+  ctx.lineTo(p2.x+nx*r2,p2.y+ny*r2);
+  ctx.lineTo(p2.x-nx*r2,p2.y-ny*r2);
+  ctx.lineTo(p1.x-nx*r1,p1.y-ny*r1);
+  ctx.closePath(); ctx.fill();
+  ctx.shadowBlur=0;
+  const ang=Math.atan2(dy,dx);
+  ctx.save(); ctx.translate(p1.x,p1.y); ctx.rotate(ang);
+  ctx.fillStyle=rgb(shade(base,-.22));
+  ctx.beginPath(); ctx.ellipse(0,0,r1*.34,r1,0,0,TAU); ctx.fill(); ctx.restore();
+  ctx.save(); ctx.translate(p2.x,p2.y); ctx.rotate(ang);
+  ctx.fillStyle=rgb(shade(base,.20));
+  ctx.beginPath(); ctx.ellipse(0,0,r2*.34,r2,0,0,TAU); ctx.fill(); ctx.restore();
+}
+
+function drawCable(p1,p2,rWorld,col,hl){
+  const w=Math.max(.75,rWorld*(p1.s+p2.s));
+  ctx.lineCap='round';
+  const line=()=>{ ctx.beginPath(); ctx.moveTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y); ctx.stroke(); };
+  if(hl){ ctx.strokeStyle=rgba(col,.28); ctx.lineWidth=w*6; line(); }
+  ctx.strokeStyle=rgba(col,.14); ctx.lineWidth=w*3.4; line();
+  ctx.strokeStyle=rgb(col); ctx.lineWidth=w; line();
+  ctx.strokeStyle=rgba(shade('#ffffff',0),.28);
+  ctx.globalCompositeOperation='lighter';
+  ctx.lineWidth=Math.max(.4,w*.32); line();
+  ctx.globalCompositeOperation='source-over';
+}
+
+function drawNode(p,r,hl){
+  const g=ctx.createRadialGradient(p.x-r*.35,p.y-r*.42,r*.08,p.x,p.y,r);
+  g.addColorStop(0,'#ffffff'); g.addColorStop(.38,'#d5dfee'); g.addColorStop(1,'#566b8c');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p.x,p.y,r,0,TAU); ctx.fill();
+  ctx.strokeStyle='rgba(38,58,92,.30)'; ctx.lineWidth=.8; ctx.stroke();
+  if(hl){
+    ctx.strokeStyle='rgba(47,109,246,.85)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(p.x,p.y,r+4.5,0,TAU); ctx.stroke();
+  }
+}
+
+function explodedPair(a,b){
+  const mid=vmul(vadd(a,b),.5), dir=vnorm(mid), off=vmul(dir,.62);
+  return [vadd(a,off),vadd(b,off)];
+}
+
+function render(){
+  ctx.clearRect(0,0,W,H);
+  const bg=ctx.createLinearGradient(0,0,W*.25,H);
+  bg.addColorStop(0,'#ffffff'); bg.addColorStop(.55,'#f5f8fd'); bg.addColorStop(1,'#e7eef8');
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+  const cam=camera(); lastCam=cam;
+  if(state.showFloor) drawFloor(cam);
+
+  let maxStrut=1e-6,maxCable=1e-6;
+  for(const c of model.struts) maxStrut=Math.max(maxStrut,c.force);
+  for(const c of model.cables) maxCable=Math.max(maxCable,c.force);
+  const items=[], nodesScreen=[], segsScreen=[];
+  const showRod=state.view!=='cables' || state.exploded;
+  const showCable=state.view!=='struts' && !state.exploded;
+
+  for(let i=0;i<model.struts.length;i++){
+    const c=model.struts[i];
+    let a=model.nodes[c.a].p, b=model.nodes[c.b].p;
+    if(state.exploded){ const q=explodedPair(a,b); a=q[0]; b=q[1]; }
+    const p1=project(a,cam), p2=project(b,cam);
+    if(!p1||!p2) continue;
+    segsScreen.push({type:'strut',i,x1:p1.x,y1:p1.y,x2:p2.x,y2:p2.y,z:(p1.z+p2.z)/2,s:(p1.s+p2.s)/2});
+    if(!showRod) continue;
+    const t=state.forceColor?clamp(c.force/maxStrut,0,1):0;
+    const base=state.forceColor?rgb(mixColor('#2f5fc0','#1b3a86',t)):'#2f5fc0';
+    const hl=(state.hover&&state.hover.type==='strut'&&state.hover.i===i)||
+             (state.selected&&state.selected.type==='strut'&&state.selected.i===i);
+    items.push({z:(p1.z+p2.z)/2,draw:()=>drawRod(p1,p2,state.rodR,base,hl)});
+  }
+  for(let i=0;i<model.cables.length;i++){
+    const c=model.cables[i];
+    const p1=project(model.nodes[c.a].p,cam), p2=project(model.nodes[c.b].p,cam);
+    if(!p1||!p2) continue;
+    segsScreen.push({type:'cable',i,x1:p1.x,y1:p1.y,x2:p2.x,y2:p2.y,z:(p1.z+p2.z)/2,s:(p1.s+p2.s)/2});
+    if(!showCable) continue;
+    const t=state.forceColor?clamp(c.force/maxCable,0,1):.4;
+    const col=state.forceColor?mixColor('#9aa9bd','#e0522f',t):hex2rgb('#8493a9');
+    const hl=(state.hover&&state.hover.type==='cable'&&state.hover.i===i)||
+             (state.selected&&state.selected.type==='cable'&&state.selected.i===i);
+    items.push({z:(p1.z+p2.z)/2,draw:()=>drawCable(p1,p2,state.cableR,col,hl)});
+  }
+  for(let i=0;i<model.nodes.length;i++){
+    const p=project(model.nodes[i].p,cam);
+    if(!p) continue;
+    nodesScreen.push({i,x:p.x,y:p.y,z:p.z,s:p.s});
+    if(!state.showNodes) continue;
+    const scale=clamp(p.s/(cam.focal/state.camDist),.55,2);
+    const r=4.6*scale;
+    const hl=(state.hover&&state.hover.type==='node'&&state.hover.i===i)||
+             (state.selected&&state.selected.type==='node'&&state.selected.i===i);
+    items.push({z:p.z-.001,draw:()=>drawNode(p,r,hl)});
+  }
+  screenCache={nodes:nodesScreen,segs:segsScreen};
+  items.sort((a,b)=>b.z-a.z);
+  for(const it of items) it.draw();
+}
+
+/* ---------- 拾取 ---------- */
+function pointSegDist(px,py,s){
+  const dx=s.x2-s.x1, dy=s.y2-s.y1, L2=dx*dx+dy*dy;
+  const t=L2?clamp(((px-s.x1)*dx+(py-s.y1)*dy)/L2,0,1):0;
+  return Math.hypot(px-(s.x1+t*dx),py-(s.y1+t*dy));
+}
+function pick(x,y){
+  let best=null,bd=13;
+  for(const n of screenCache.nodes){
+    const d=Math.hypot(n.x-x,n.y-y);
+    if(d<bd){ bd=d; best={type:'node',i:n.i,s:n.s,z:n.z}; }
+  }
+  if(best) return best;
+  bd=6;
+  for(const s of screenCache.segs){
+    const d=pointSegDist(x,y,s);
+    if(d<bd){ bd=d; best={type:s.type,i:s.i,s:s.s,z:s.z}; }
+  }
+  return best;
+}
+
+/* ---------- 事件 ---------- */
+function localPos(e){
+  const r=canvas.getBoundingClientRect();
+  return [e.clientX-r.left,e.clientY-r.top];
+}
+const activePointers=new Map();
+let pinchPrev=0;
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+canvas.addEventListener('pointerdown',e=>{
+  const [x,y]=localPos(e);
+  canvas.setPointerCapture(e.pointerId);
+  activePointers.set(e.pointerId,[x,y]);
+  if(activePointers.size>=2){
+    if(state.drag&&state.drag.mode==='node') model.nodes[state.drag.i].pinned=false;
+    state.drag=null;
+    const pts=[...activePointers.values()];
+    pinchPrev=Math.hypot(pts[0][0]-pts[1][0],pts[0][1]-pts[1][1]);
+    canvas.classList.add('grabbing');
+    return;
+  }
+  if(e.button===2){ state.drag={mode:'pan',x,y}; }
+  else{
+    const hit=pick(x,y);
+    if(hit&&hit.type==='node'){
+      model.nodes[hit.i].pinned=true;
+      state.drag={mode:'node',i:hit.i,x,y,shift:e.shiftKey};
+      state.selected={type:'node',i:hit.i};
+    }else{
+      state.drag={mode:'orbit',x,y};
+      state.selected=hit;
+    }
+  }
+  canvas.classList.add('grabbing');
+});
+canvas.addEventListener('pointermove',e=>{
+  const [x,y]=localPos(e);
+  if(activePointers.has(e.pointerId)) activePointers.set(e.pointerId,[x,y]);
+  if(activePointers.size>=2){
+    const pts=[...activePointers.values()];
+    const dd=Math.hypot(pts[0][0]-pts[1][0],pts[0][1]-pts[1][1]);
+    if(pinchPrev>0&&dd>0) state.camDist=clamp(state.camDist*(pinchPrev/dd),2.4,14);
+    pinchPrev=dd;
+    return;
+  }
+  const d=state.drag;
+  if(!d){
+    const hit=pick(x,y);
+    state.hover=hit;
+    canvas.classList.toggle('overnode',!!hit&&hit.type==='node');
+    return;
+  }
+  const dx=x-d.x, dy=y-d.y;
+  if(d.mode==='orbit'){
+    state.yaw+=dx*.0065;
+    state.pitch=clamp(state.pitch-dy*.0065,-1.35,1.35);
+  }else if(d.mode==='pan'){
+    state.panX-=dx*.0022*state.camDist;
+    state.panY+=dy*.0022*state.camDist;
+  }else if(d.mode==='node'){
+    const n=model.nodes[d.i], cam=lastCam;
+    if(cam){
+      const sp=screenCache.nodes.find(x=>x.i===d.i);
+      const k=1/Math.max(40,sp?sp.s:200);
+      if(e.shiftKey){
+        const f=vmul(cam.fwd,-dy*.008*state.camDist);
+        n.p=vadd(n.p,f);
+      }else{
+        const mv=vadd(vmul(cam.right,dx*k),vmul(cam.up,-dy*k));
+        n.p=vadd(n.p,mv);
+      }
+    }
+  }
+  d.x=x; d.y=y;
+});
+function endDrag(e){
+  if(e&&e.pointerId!==undefined) activePointers.delete(e.pointerId);
+  if(activePointers.size<2) pinchPrev=0;
+  const d=state.drag;
+  if(d&&d.mode==='node') model.nodes[d.i].pinned=false;
+  state.drag=null;
+  canvas.classList.remove('grabbing');
+  if(e&&e.pointerId!==undefined&&canvas.hasPointerCapture(e.pointerId))
+    canvas.releasePointerCapture(e.pointerId);
+}
+canvas.addEventListener('pointerup',endDrag);
+canvas.addEventListener('pointercancel',endDrag);
+canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  state.camDist=clamp(state.camDist*Math.exp(e.deltaY*.001),2.4,14);
+},{passive:false});
+canvas.addEventListener('dblclick',resetView);
+window.addEventListener('keydown',e=>{
+  if(e.key===' '){ e.preventDefault(); state.paused=!state.paused; }
+  else if(e.key==='r'||e.key==='R') rebuild();
+  else if(e.key==='1') setModel('prism3');
+  else if(e.key==='2') setModel('prism4');
+  else if(e.key==='3') setModel('icosa');
+});
+
+function resetView(){
+  state.yaw=.62; state.pitch=.30; state.camDist=5.5; state.panX=0; state.panY=0;
+}
+function rebuild(){
+  model=buildModel(state.kind,state.twist);
+  state.hover=null; state.selected=null;
+}
+function setModel(kind){
+  state.kind=kind;
+  state.twist=kind==='prism3'?150:(kind==='prism4'?135:150);
+  document.querySelectorAll('[data-model]').forEach(b=>b.classList.toggle('on',b.dataset.model===kind));
+  document.getElementById('twistRange').value=state.twist;
+  document.getElementById('twistRange').disabled=(kind==='icosa');
+  syncLabel('twist',state.twist+'°');
+  rebuild();
+}
+function syncLabel(k,txt){
+  const el=document.getElementById('v-'+k);
+  if(el) el.textContent=txt;
+}
+document.querySelectorAll('[data-model]').forEach(b=>{
+  b.addEventListener('click',()=>setModel(b.dataset.model));
+});
+document.querySelectorAll('[data-view]').forEach(b=>{
+  b.addEventListener('click',()=>{
+    state.view=b.dataset.view;
+    document.querySelectorAll('[data-view]').forEach(x=>x.classList.toggle('on',x===b));
+  });
+});
+document.querySelectorAll('input[type=range]').forEach(inp=>{
+  inp.addEventListener('input',()=>{
+    const k=inp.dataset.k, v=parseFloat(inp.value);
+    state[k]=v;
+    if(k==='prestrain') syncLabel(k,(v*100).toFixed(1)+'%');
+    else if(k==='twist'){ syncLabel(k,v+'°'); rebuild(); }
+    else if(k==='rodR'||k==='cableR') syncLabel(k,v.toFixed(3));
+    else syncLabel(k,v.toFixed(2));
+  });
+});
+document.querySelectorAll('input[type=checkbox]').forEach(inp=>{
+  inp.addEventListener('change',()=>{ state[inp.dataset.c]=inp.checked; });
+});
+document.getElementById('fold').addEventListener('click',e=>{
+  const p=document.getElementById('panel');
+  p.classList.toggle('folded');
+  e.target.textContent=p.classList.contains('folded')?'展开':'收起';
+});
+document.getElementById('btnReset').addEventListener('click',rebuild);
+document.getElementById('btnPause').addEventListener('click',()=>{ state.paused=!state.paused; });
+document.getElementById('btnKick').addEventListener('click',()=>kickModel(model,1.8));
+document.getElementById('btnView').addEventListener('click',resetView);
+
+function download(text,name,type){
+  const blob=new Blob([text],{type:type||'text/plain;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=name; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },600);
+}
+document.getElementById('btnObj').addEventListener('click',()=>{
+  download(buildOBJ(model,{rodR:state.rodR,cableR:Math.max(.008,state.cableR)}),
+    'tensegrity-'+state.kind+'.obj','text/plain;charset=utf-8');
+});
+document.getElementById('btnPng').addEventListener('click',()=>{
+  const a=document.createElement('a');
+  a.href=canvas.toDataURL('image/png'); a.download='tensegrity-'+state.kind+'.png';
+  document.body.appendChild(a); a.click(); a.remove();
+});
+
+function describe(h){
+  if(!h) return '<b>'+model.name+'</b><br>节点 '+model.nodes.length+' · 压杆 '+model.struts.length+' · 拉索 '+model.cables.length;
+  const c=h.type==='strut'?model.struts[h.i]:model.cables[h.i];
+  if(h.type==='node') return '<b>节点 #'+h.i+'</b><br>连接 1 根压杆 + 4~3 根拉索<br>拖拽它可给结构施力';
+  const d=dist(model.nodes[c.a].p,model.nodes[c.b].p);
+  return '<b>'+(h.type==='strut'?'压杆 #':'拉索 #')+h.i+'</b><br>'+
+         '当前长度 '+d.toFixed(3)+' · 原长 '+c.L.toFixed(3)+'<br>'+
+         (h.type==='strut'?'压杆长度恒定，只承受压缩':'松弛时不受力，绷紧后承受拉伸');
+}
+function updateReadout(now){
+  if(now-lastReadout<140) return;
+  lastReadout=now;
+  const h=state.selected||state.hover;
+  document.getElementById('readout').innerHTML=describe(h);
+  document.getElementById('stat').innerHTML=
+    '<span>结构 <b>'+model.name+'</b></span>'+
+    '<span>节点 <b>'+model.nodes.length+'</b></span>'+
+    '<span>压杆 <b>'+model.struts.length+'</b></span>'+
+    '<span>拉索 <b>'+model.cables.length+'</b></span>'+
+    '<span>状态 <b>'+(state.paused?'暂停':'运行中')+'</b></span>'+
+    '<span>FPS <b>'+fps.toFixed(0)+'</b></span>';
+}
+
+function frame(now){
+  const dt=Math.min(.05,(now-lastT)/1000); lastT=now;
+  fps=fps*.9+(1/Math.max(.001,dt))*.1;
+  if(!state.paused) stepModel(model,{prestrain:state.prestrain,anchor:state.anchor,
+    damping:state.damping,gravity:state.gravity,floor:-1.88});
+  if(state.auto) state.yaw+=state.auto*dt;
+  render();
+  updateReadout(now);
+  requestAnimationFrame(frame);
+}
+document.getElementById('twistRange').disabled=true;
+const coarse=(window.matchMedia&&window.matchMedia('(pointer:coarse)').matches)||('ontouchstart' in window);
+if(coarse){
+  document.getElementById('panel').classList.add('folded');
+  document.getElementById('fold').textContent='展开';
+  document.getElementById('brandSub').innerHTML='单指拖动旋转 · 双指缩放 · 拖动节点施力';
+  document.getElementById('hudTip').textContent='单指旋转 · 双指缩放 · 拖动节点施力';
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
